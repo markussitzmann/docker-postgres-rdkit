@@ -1,6 +1,6 @@
-FROM mcs07/rdkit:2020.03.2 as rdkit-env
+FROM rdkit:2020.09.3 as rdkit-env
 
-FROM postgres:12 AS rdkit-postgres-build-env
+FROM postgres:13 AS rdkit-postgres-build-env
 
 RUN apt-get update \
  && apt-get install -yq --no-install-recommends \
@@ -8,6 +8,7 @@ RUN apt-get update \
     build-essential \
     cmake \
     wget \
+    git \
     libboost-dev \
     libboost-iostreams-dev \
     libboost-python-dev \
@@ -20,7 +21,7 @@ RUN apt-get update \
     python3-dev \
     python3-numpy \
     patch \
-    postgresql-server-dev-12 \
+    postgresql-server-dev-13 \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
@@ -32,17 +33,21 @@ COPY --from=rdkit-env /usr/include/rdkit /usr/include/rdkit
 COPY --from=rdkit-env /usr/lib/python3/dist-packages/rdkit /usr/lib/python3/dist-packages/rdkit
 
 
-ARG RDKIT_VERSION=Release_2020_03_2
-RUN wget --quiet https://github.com/rdkit/rdkit/archive/${RDKIT_VERSION}.tar.gz \
- && tar -xzf ${RDKIT_VERSION}.tar.gz \
- && mv rdkit-${RDKIT_VERSION} rdkit \
- && rm ${RDKIT_VERSION}.tar.gz
+ARG RDKIT_VERSION=Release_2020_09_3
+#RUN wget --quiet https://github.com/rdkit/rdkit/archive/${RDKIT_VERSION}.tar.gz \
+# && tar -xzf ${RDKIT_VERSION}.tar.gz \
+# && mv rdkit-${RDKIT_VERSION} rdkit \
+# && rm ${RDKIT_VERSION}.tar.gz
+
+RUN git clone -b docker-postgres-rdkit-fixes --single-branch https://github.com/markussitzmann/rdkit.git
 
 WORKDIR /rdkit/Code/PgSQL/rdkit
 
 COPY patches/*.patch /tmp/
-RUN patch CMakeLists.txt /tmp/cmakelists.txt.patch \
- && patch adapter.cpp /tmp/adapter.cpp.patch
+#RUN patch -l CMakeLists.txt /tmp/cmakelists.txt.patch \
+# && patch adapter.cpp /tmp/adapter.cpp.patch
+
+RUN patch adapter.cpp /tmp/adapter.cpp.patch
 
 RUN cmake -Wno-dev \
     -D CMAKE_BUILD_TYPE=Release \
@@ -53,12 +58,12 @@ RUN cmake -Wno-dev \
     -D RDK_BUILD_INCHI_SUPPORT=ON \
     -D RDKit_DIR=/usr/lib \
     -D PostgreSQL_ROOT=/usr \
-    -D PostgreSQL_TYPE_INCLUDE_DIR=/usr/include/postgresql/12/server/ \
+    -D PostgreSQL_TYPE_INCLUDE_DIR=/usr/include/postgresql/13/server/ \
     .
 
 RUN make -j $(nproc)
 
-FROM postgres:12 AS rdkit-postgres-env
+FROM postgres:13 AS rdkit-postgres-env
 
 # Install runtime dependencies
 RUN apt-get update \
@@ -87,6 +92,6 @@ COPY --from=rdkit-env /usr/include/rdkit /usr/include/rdkit
 COPY --from=rdkit-env /usr/lib/python3/dist-packages/rdkit /usr/lib/python3/dist-packages/rdkit
 
 # Copy rdkit postgres extension from rdkit-postgres-build-env
-COPY --from=rdkit-postgres-build-env /rdkit/Code/PgSQL/rdkit/rdkit--3.8.sql /usr/share/postgresql/12/extension
-COPY --from=rdkit-postgres-build-env /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/12/extension
-COPY --from=rdkit-postgres-build-env /rdkit/Code/PgSQL/rdkit/librdkit.so /usr/lib/postgresql/12/lib/rdkit.so
+COPY --from=rdkit-postgres-build-env /rdkit/Code/PgSQL/rdkit/rdkit--3.8.sql /usr/share/postgresql/13/extension
+COPY --from=rdkit-postgres-build-env /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/13/extension
+COPY --from=rdkit-postgres-build-env /rdkit/Code/PgSQL/rdkit/librdkit.so /usr/lib/postgresql/13/lib/rdkit.so
